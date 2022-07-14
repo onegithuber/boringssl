@@ -5,6 +5,7 @@ ssl/test/runner/runner
 *.pyc
 *.swp
 *.swo
+.idea/
 doc/*.html
 doc/doc.css
 rust/Cargo.lock
