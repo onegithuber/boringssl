@@ -14,10 +14,9 @@ class cmake_build_ext(build_ext):
         ext_path = self.get_ext_fullpath('boringssl')
         subprocess.check_call(['cp', self.build_temp + '/ssl/libssl.so', ext_path])
 
-
 setuptools.setup(
     name='boringssl-bin',
-    version='0.0.2',
+    version='0.0.1',
     description='Build BoringSSL',
     long_description='Build BoringSSL',
     package_dir={"boringssl_bin": "."},
