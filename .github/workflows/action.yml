@@ -8,13 +8,13 @@ jobs:
     runs-on: ubuntu-latest
     environment: testpypi
     env:
-      TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
-      TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
+      TWINE_USERNAME: ${{ secrets.TESTPYPI_USERNAME }}
+      TWINE_PASSWORD: ${{ secrets.TESTPYPI_PASSWORD }}
       TEST_ENV: works
     steps:
       - uses: actions/checkout@v1
       - name: Run test.sh in manylinux
-        uses: docker://quay.io/pypa/manylinux_2_24_x86_64
+        uses: docker://quay.io/pypa/manylinux2014_x86_64
         with:
           entrypoint: /github/workspace/test.sh
           TEST_WITH_ENV: with_works
