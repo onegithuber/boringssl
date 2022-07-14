@@ -3,6 +3,7 @@ import setuptools
 from setuptools.command.build_ext import build_ext
 import subprocess
 
+#git update-index --chmod=+x ./test.sh
 
 class cmake_build_ext(build_ext):
     def build_extensions(self):
@@ -19,8 +20,8 @@ setuptools.setup(
     version='0.0.1',
     description='Build BoringSSL',
     long_description='Build BoringSSL',
-    package_dir={"boringssl_binary_build": "."},
-    packages=["boringssl_binary_build"],
+    package_dir={"boringssl_bin": "."},
+    packages=["boringssl_bin"],
     python_requires='>=3.6',
     ext_modules=[setuptools.extension.Extension('boringssl', sources=[])],
     cmdclass={'build_ext': cmake_build_ext},
