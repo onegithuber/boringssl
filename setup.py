@@ -16,7 +16,7 @@ class cmake_build_ext(build_ext):
 
 setuptools.setup(
     name='boringssl-bin',
-    version='0.0.3',
+    version='0.0.4',
     description='Build BoringSSL',
     long_description='Build BoringSSL',
     package_dir={"boringssl_bin": "."},

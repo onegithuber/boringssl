@@ -12,5 +12,5 @@ yum -y install golang
 auditwheel show dist/*.whl
 auditwheel repair dist/*.whl
 /opt/python/cp36-cp36m/bin/pip install twine
-mv wheelhouse/*manylinux*.whl wheelhouse/boringssl_bin-0.0.3-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+mv wheelhouse/*manylinux*.whl wheelhouse/boringssl_bin-0.0.4-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
 /opt/python/cp36-cp36m/bin/twine upload --verbose --repository testpypi wheelhouse/*manylinux*.whl
