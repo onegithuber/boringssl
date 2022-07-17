@@ -2968,7 +2968,10 @@ OPENSSL_EXPORT int SSL_CTX_add_cert_compression_alg(
     SSL_CTX *ctx, uint16_t alg_id, ssl_cert_compression_func_t compress,
     ssl_cert_decompression_func_t decompress);
 
-OPENSSL_EXPORT static void enable_compression(SSL_CTX* ctx);
+OPENSSL_EXPORT void enable_compression(SSL_CTX* ctx);
+OPENSSL_EXPORT int decompress_cert(SSL* ssl, CRYPTO_BUFFER** out, size_t uncompressed_len,
+                            const uint8_t* in, size_t in_len);
+OPENSSL_EXPORT int compress_cert(SSL* ssl, CBB* out, const uint8_t* in, size_t in_len);
 // Next protocol negotiation.
 //
 // The NPN extension (draft-agl-tls-nextprotoneg-03) is the predecessor to ALPN

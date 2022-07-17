@@ -2289,21 +2289,21 @@ int SSL_CTX_add_cert_compression_alg(SSL_CTX *ctx, uint16_t alg_id,
   alg.decompress = decompress;
   return ctx->cert_compression_algs.Push(alg);
 }
-static int compress_cert(SSL* ssl, CBB* out, const uint8_t* in, size_t in_len)
+int compress_cert(SSL* ssl, CBB* out, const uint8_t* in, size_t in_len)
 {
     // Implementation
     printf("Compress called\n");
     return 0;
 }
 
-static int decompress_cert(SSL* ssl, CRYPTO_BUFFER** out, size_t uncompressed_len,
+int decompress_cert(SSL* ssl, CRYPTO_BUFFER** out, size_t uncompressed_len,
                             const uint8_t* in, size_t in_len)
 {
     // Implementation
     printf("Decompress called\n");
     return 0;
 }
-static void enable_compression(SSL_CTX* ctx) {
+void enable_compression(SSL_CTX* ctx) {
     if (!(SSL_CTX_add_cert_compression_alg(ctx, TLSEXT_cert_compression_zlib,  compress_cert, decompress_cert)))
         perror("Unable to register ZLIB for certificate compression\n");
 }
