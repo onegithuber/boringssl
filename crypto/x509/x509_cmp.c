@@ -1,4 +1,3 @@
-/* crypto/x509/x509_cmp.c */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -70,19 +69,6 @@
 #include "../x509v3/internal.h"
 #include "internal.h"
 
-
-int X509_issuer_and_serial_cmp(const X509 *a, const X509 *b) {
-  int i;
-  X509_CINF *ai, *bi;
-
-  ai = a->cert_info;
-  bi = b->cert_info;
-  i = ASN1_INTEGER_cmp(ai->serialNumber, bi->serialNumber);
-  if (i) {
-    return i;
-  }
-  return (X509_NAME_cmp(ai->issuer, bi->issuer));
-}
 
 int X509_issuer_name_cmp(const X509 *a, const X509 *b) {
   return (X509_NAME_cmp(a->cert_info->issuer, b->cert_info->issuer));
@@ -221,36 +207,25 @@ unsigned long X509_NAME_hash_old(X509_NAME *x) {
   return ret;
 }
 
-// Search a stack of X509 for a match
-X509 *X509_find_by_issuer_and_serial(STACK_OF(X509) *sk, X509_NAME *name,
-                                     ASN1_INTEGER *serial) {
-  size_t i;
-  X509_CINF cinf;
-  X509 x, *x509 = NULL;
-
-  if (!sk) {
+X509 *X509_find_by_issuer_and_serial(const STACK_OF(X509) *sk, X509_NAME *name,
+                                     const ASN1_INTEGER *serial) {
+  if (serial->type != V_ASN1_INTEGER && serial->type != V_ASN1_NEG_INTEGER) {
     return NULL;
   }
 
-  x.cert_info = &cinf;
-  cinf.serialNumber = serial;
-  cinf.issuer = name;
-
-  for (i = 0; i < sk_X509_num(sk); i++) {
-    x509 = sk_X509_value(sk, i);
-    if (X509_issuer_and_serial_cmp(x509, &x) == 0) {
+  for (size_t i = 0; i < sk_X509_num(sk); i++) {
+    X509 *x509 = sk_X509_value(sk, i);
+    if (ASN1_INTEGER_cmp(X509_get0_serialNumber(x509), serial) == 0 &&
+        X509_NAME_cmp(X509_get_issuer_name(x509), name) == 0) {
       return x509;
     }
   }
   return NULL;
 }
 
-X509 *X509_find_by_subject(STACK_OF(X509) *sk, X509_NAME *name) {
-  X509 *x509;
-  size_t i;
-
-  for (i = 0; i < sk_X509_num(sk); i++) {
-    x509 = sk_X509_value(sk, i);
+X509 *X509_find_by_subject(const STACK_OF(X509) *sk, X509_NAME *name) {
+  for (size_t i = 0; i < sk_X509_num(sk); i++) {
+    X509 *x509 = sk_X509_value(sk, i);
     if (X509_NAME_cmp(X509_get_subject_name(x509), name) == 0) {
       return x509;
     }
@@ -305,135 +280,15 @@ int X509_check_private_key(X509 *x, const EVP_PKEY *k) {
   return 0;
 }
 
-// Check a suite B algorithm is permitted: pass in a public key and the NID
-// of its signature (or 0 if no signature). The pflags is a pointer to a
-// flags field which must contain the suite B verification flags.
-
-static int check_suite_b(EVP_PKEY *pkey, int sign_nid, unsigned long *pflags) {
-  const EC_GROUP *grp = NULL;
-  int curve_nid;
-  if (pkey && pkey->type == EVP_PKEY_EC) {
-    grp = EC_KEY_get0_group(pkey->pkey.ec);
-  }
-  if (!grp) {
-    return X509_V_ERR_SUITE_B_INVALID_ALGORITHM;
-  }
-  curve_nid = EC_GROUP_get_curve_name(grp);
-  // Check curve is consistent with LOS
-  if (curve_nid == NID_secp384r1) {  // P-384
-    // Check signature algorithm is consistent with curve.
-    if (sign_nid != -1 && sign_nid != NID_ecdsa_with_SHA384) {
-      return X509_V_ERR_SUITE_B_INVALID_SIGNATURE_ALGORITHM;
-    }
-    if (!(*pflags & X509_V_FLAG_SUITEB_192_LOS)) {
-      return X509_V_ERR_SUITE_B_LOS_NOT_ALLOWED;
-    }
-    // If we encounter P-384 we cannot use P-256 later
-    *pflags &= ~X509_V_FLAG_SUITEB_128_LOS_ONLY;
-  } else if (curve_nid == NID_X9_62_prime256v1) {  // P-256
-    if (sign_nid != -1 && sign_nid != NID_ecdsa_with_SHA256) {
-      return X509_V_ERR_SUITE_B_INVALID_SIGNATURE_ALGORITHM;
-    }
-    if (!(*pflags & X509_V_FLAG_SUITEB_128_LOS_ONLY)) {
-      return X509_V_ERR_SUITE_B_LOS_NOT_ALLOWED;
-    }
-  } else {
-    return X509_V_ERR_SUITE_B_INVALID_CURVE;
-  }
-
-  return X509_V_OK;
-}
-
-int X509_chain_check_suiteb(int *perror_depth, X509 *x, STACK_OF(X509) *chain,
-                            unsigned long flags) {
-  int rv, sign_nid;
-  size_t i;
-  EVP_PKEY *pk = NULL;
-  unsigned long tflags;
-  if (!(flags & X509_V_FLAG_SUITEB_128_LOS)) {
-    return X509_V_OK;
-  }
-  tflags = flags;
-  // If no EE certificate passed in must be first in chain
-  if (x == NULL) {
-    x = sk_X509_value(chain, 0);
-    i = 1;
-  } else {
-    i = 0;
-  }
-
-  if (X509_get_version(x) != X509_VERSION_3) {
-    rv = X509_V_ERR_SUITE_B_INVALID_VERSION;
-    // Correct error depth
-    i = 0;
-    goto end;
-  }
-
-  pk = X509_get_pubkey(x);
-  // Check EE key only
-  rv = check_suite_b(pk, -1, &tflags);
-  if (rv != X509_V_OK) {
-    // Correct error depth
-    i = 0;
-    goto end;
-  }
-  for (; i < sk_X509_num(chain); i++) {
-    sign_nid = X509_get_signature_nid(x);
-    x = sk_X509_value(chain, i);
-    if (X509_get_version(x) != X509_VERSION_3) {
-      rv = X509_V_ERR_SUITE_B_INVALID_VERSION;
-      goto end;
-    }
-    EVP_PKEY_free(pk);
-    pk = X509_get_pubkey(x);
-    rv = check_suite_b(pk, sign_nid, &tflags);
-    if (rv != X509_V_OK) {
-      goto end;
-    }
-  }
-
-  // Final check: root CA signature
-  rv = check_suite_b(pk, X509_get_signature_nid(x), &tflags);
-end:
-  if (pk) {
-    EVP_PKEY_free(pk);
-  }
-  if (rv != X509_V_OK) {
-    // Invalid signature or LOS errors are for previous cert
-    if ((rv == X509_V_ERR_SUITE_B_INVALID_SIGNATURE_ALGORITHM ||
-         rv == X509_V_ERR_SUITE_B_LOS_NOT_ALLOWED) &&
-        i) {
-      i--;
-    }
-    // If we have LOS error and flags changed then we are signing P-384
-    // with P-256. Use more meaninggul error.
-    if (rv == X509_V_ERR_SUITE_B_LOS_NOT_ALLOWED && flags != tflags) {
-      rv = X509_V_ERR_SUITE_B_CANNOT_SIGN_P_384_WITH_P_256;
-    }
-    if (perror_depth) {
-      *perror_depth = i;
-    }
-  }
-  return rv;
-}
-
-int X509_CRL_check_suiteb(X509_CRL *crl, EVP_PKEY *pk, unsigned long flags) {
-  int sign_nid;
-  if (!(flags & X509_V_FLAG_SUITEB_128_LOS)) {
-    return X509_V_OK;
-  }
-  sign_nid = OBJ_obj2nid(crl->crl->sig_alg->algorithm);
-  return check_suite_b(pk, sign_nid, &flags);
-}
-
 // Not strictly speaking an "up_ref" as a STACK doesn't have a reference
 // count but it has the same effect by duping the STACK and upping the ref of
 // each X509 structure.
 STACK_OF(X509) *X509_chain_up_ref(STACK_OF(X509) *chain) {
-  STACK_OF(X509) *ret;
-  size_t i;
-  ret = sk_X509_dup(chain);
-  for (i = 0; i < sk_X509_num(ret); i++) {
+  STACK_OF(X509) *ret = sk_X509_dup(chain);
+  if (ret == NULL) {
+    return NULL;
+  }
+  for (size_t i = 0; i < sk_X509_num(ret); i++) {
     X509_up_ref(sk_X509_value(ret, i));
   }
   return ret;

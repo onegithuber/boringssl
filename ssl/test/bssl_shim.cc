@@ -278,6 +278,20 @@ static uint16_t GetProtocolVersion(const SSL *ssl) {
   return 0x0201 + ~version;
 }
 
+static bool CheckListContains(const char *type,
+                              size_t (*list_func)(const char **, size_t),
+                              const char *str) {
+  std::vector<const char *> list(list_func(nullptr, 0));
+  list_func(list.data(), list.size());
+  for (const char *expected : list) {
+    if (strcmp(expected, str) == 0) {
+      return true;
+    }
+  }
+  fprintf(stderr, "Unexpected %s: %s\n", type, str);
+  return false;
+}
+
 // CheckAuthProperties checks, after the initial handshake is completed or
 // after a renegotiation, that authentication-related properties match |config|.
 static bool CheckAuthProperties(SSL *ssl, bool is_resume,
@@ -583,16 +597,14 @@ static bool CheckHandshakeProperties(SSL *ssl, bool is_resume,
   }
 
   uint16_t cipher_id = SSL_CIPHER_get_protocol_id(SSL_get_current_cipher(ssl));
-  if (config->expect_cipher_aes != 0 &&
-      EVP_has_aes_hardware() &&
+  if (config->expect_cipher_aes != 0 && EVP_has_aes_hardware() &&
       config->expect_cipher_aes != cipher_id) {
     fprintf(stderr, "Cipher ID was %04x, wanted %04x (has AES hardware)\n",
             cipher_id, config->expect_cipher_aes);
     return false;
   }
 
-  if (config->expect_cipher_no_aes != 0 &&
-      !EVP_has_aes_hardware() &&
+  if (config->expect_cipher_no_aes != 0 && !EVP_has_aes_hardware() &&
       config->expect_cipher_no_aes != cipher_id) {
     fprintf(stderr, "Cipher ID was %04x, wanted %04x (no AES hardware)\n",
             cipher_id, config->expect_cipher_no_aes);
@@ -666,14 +678,50 @@ static bool CheckHandshakeProperties(SSL *ssl, bool is_resume,
     return false;
   }
 
+  if (config->expect_key_usage_invalid != !!SSL_was_key_usage_invalid(ssl)) {
+    fprintf(stderr, "X.509 key usage was %svalid, but wanted opposite.\n",
+            SSL_was_key_usage_invalid(ssl) ? "in" : "");
+    return false;
+  }
+
+  // Check all the selected parameters are covered by the string APIs.
+  if (!CheckListContains("version", SSL_get_all_version_names,
+                         SSL_get_version(ssl)) ||
+      !CheckListContains(
+          "cipher", SSL_get_all_standard_cipher_names,
+          SSL_CIPHER_standard_name(SSL_get_current_cipher(ssl))) ||
+      !CheckListContains("OpenSSL cipher name", SSL_get_all_cipher_names,
+                         SSL_CIPHER_get_name(SSL_get_current_cipher(ssl))) ||
+      (SSL_get_group_id(ssl) != 0 &&
+       !CheckListContains("group", SSL_get_all_group_names,
+                          SSL_get_group_name(SSL_get_group_id(ssl)))) ||
+      (SSL_get_peer_signature_algorithm(ssl) != 0 &&
+       !CheckListContains(
+           "sigalg", SSL_get_all_signature_algorithm_names,
+           SSL_get_signature_algorithm_name(
+               SSL_get_peer_signature_algorithm(ssl), /*include_curve=*/0))) ||
+      (SSL_get_peer_signature_algorithm(ssl) != 0 &&
+       !CheckListContains(
+           "sigalg with curve", SSL_get_all_signature_algorithm_names,
+           SSL_get_signature_algorithm_name(
+               SSL_get_peer_signature_algorithm(ssl), /*include_curve=*/1)))) {
+    return false;
+  }
+
   // Test that handshake hints correctly skipped the expected operations.
-  //
-  // TODO(davidben): Add support for TLS 1.2 hints and remove the version check.
-  // Also add a check for the session cache lookup.
-  if (config->handshake_hints && !config->allow_hint_mismatch &&
-      SSL_version(ssl) == TLS1_3_VERSION) {
+  if (config->handshake_hints && !config->allow_hint_mismatch) {
     const TestState *state = GetTestState(ssl);
-    if (!SSL_used_hello_retry_request(ssl) && state->used_private_key) {
+    // If the private key operation is performed in the first roundtrip, a hint
+    // match should have skipped it. This is ECDHE-based cipher suites in TLS
+    // 1.2 and non-HRR handshakes in TLS 1.3.
+    bool private_key_allowed;
+    if (SSL_version(ssl) == TLS1_3_VERSION) {
+      private_key_allowed = SSL_used_hello_retry_request(ssl);
+    } else {
+      private_key_allowed =
+          SSL_CIPHER_get_kx_nid(SSL_get_current_cipher(ssl)) == NID_kx_rsa;
+    }
+    if (!private_key_allowed && state->used_private_key) {
       fprintf(
           stderr,
           "Performed private key operation, but hint should have skipped it\n");
@@ -685,6 +733,9 @@ static bool CheckHandshakeProperties(SSL *ssl, bool is_resume,
               "Performed ticket decryption, but hint should have skipped it\n");
       return false;
     }
+
+    // TODO(davidben): Decide what we want to do with TLS 1.2 stateful
+    // resumption.
   }
   return true;
 }

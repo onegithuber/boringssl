@@ -64,6 +64,7 @@
 #include <openssl/x509.h>
 
 #include "../asn1/internal.h"
+#include "../internal.h"
 
 #if defined(__cplusplus)
 extern "C" {
@@ -147,20 +148,17 @@ struct x509_st {
   CRYPTO_EX_DATA ex_data;
   // These contain copies of various extension values
   long ex_pathlen;
-  long ex_pcpathlen;
-  unsigned long ex_flags;
-  unsigned long ex_kusage;
-  unsigned long ex_xkusage;
-  unsigned long ex_nscert;
+  uint32_t ex_flags;
+  uint32_t ex_kusage;
+  uint32_t ex_xkusage;
+  uint32_t ex_nscert;
   ASN1_OCTET_STRING *skid;
   AUTHORITY_KEYID *akid;
-  X509_POLICY_CACHE *policy_cache;
   STACK_OF(DIST_POINT) *crldp;
   STACK_OF(GENERAL_NAME) *altname;
   NAME_CONSTRAINTS *nc;
   unsigned char cert_hash[SHA256_DIGEST_LENGTH];
   X509_CERT_AUX *aux;
-  CRYPTO_BUFFER *buf;
   CRYPTO_MUTEX lock;
 } /* X509 */;
 
@@ -181,7 +179,6 @@ struct X509_req_st {
   X509_REQ_INFO *req_info;
   X509_ALGOR *sig_alg;
   ASN1_BIT_STRING *signature;
-  CRYPTO_refcount_t references;
 } /* X509_REQ */;
 
 struct x509_revoked_st {
@@ -231,7 +228,7 @@ struct X509_crl_st {
 
 struct X509_VERIFY_PARAM_st {
   char *name;
-  time_t check_time;                // Time to use
+  int64_t check_time;               // POSIX time to use
   unsigned long inh_flags;          // Inheritance flags
   unsigned long flags;              // Various verify flags
   int purpose;                      // purpose to check untrusted certificates
@@ -271,12 +268,6 @@ struct x509_lookup_method_st {
               char **ret);
   int (*get_by_subject)(X509_LOOKUP *ctx, int type, X509_NAME *name,
                         X509_OBJECT *ret);
-  int (*get_by_issuer_serial)(X509_LOOKUP *ctx, int type, X509_NAME *name,
-                              ASN1_INTEGER *serial, X509_OBJECT *ret);
-  int (*get_by_fingerprint)(X509_LOOKUP *ctx, int type, unsigned char *bytes,
-                            int len, X509_OBJECT *ret);
-  int (*get_by_alias)(X509_LOOKUP *ctx, int type, char *str, int len,
-                      X509_OBJECT *ret);
 } /* X509_LOOKUP_METHOD */;
 
 // This is used to hold everything.  It is used for all certificate
@@ -354,9 +345,6 @@ struct x509_store_ctx_st {
   int valid;               // if 0, rebuild chain
   int last_untrusted;      // index of last untrusted cert
   STACK_OF(X509) *chain;   // chain of X509s - built up and trusted
-  X509_POLICY_TREE *tree;  // Valid policy tree
-
-  int explicit_policy;  // Require explicit policy value
 
   // When something goes wrong, this is why
   int error_depth;
@@ -373,7 +361,7 @@ struct x509_store_ctx_st {
   CRYPTO_EX_DATA ex_data;
 } /* X509_STORE_CTX */;
 
-ASN1_TYPE *ASN1_generate_v3(const char *str, X509V3_CTX *cnf);
+ASN1_TYPE *ASN1_generate_v3(const char *str, const X509V3_CTX *cnf);
 
 int X509_CERT_AUX_print(BIO *bp, X509_CERT_AUX *x, int indent);
 
@@ -412,6 +400,20 @@ int x509_digest_sign_algorithm(EVP_MD_CTX *ctx, X509_ALGOR *algor);
 // zero on error.
 int x509_digest_verify_init(EVP_MD_CTX *ctx, const X509_ALGOR *sigalg,
                             EVP_PKEY *pkey);
+
+
+// Path-building functions.
+
+// X509_policy_check checks certificate policies in |certs|. |user_policies| is
+// the user-initial-policy-set. If |user_policies| is NULL or empty, it is
+// interpreted as anyPolicy. |flags| is a set of |X509_V_FLAG_*| values to
+// apply. It returns |X509_V_OK| on success and |X509_V_ERR_*| on error. It
+// additionally sets |*out_current_cert| to the certificate where the error
+// occurred. If the function succeeded, or the error applies to the entire
+// chain, it sets |*out_current_cert| to NULL.
+int X509_policy_check(const STACK_OF(X509) *certs,
+                      const STACK_OF(ASN1_OBJECT) *user_policies,
+                      unsigned long flags, X509 **out_current_cert);
 
 
 #if defined(__cplusplus)

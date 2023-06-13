@@ -20,6 +20,7 @@
 #include <openssl/cipher.h>
 #include <openssl/cmac.h>
 #include <openssl/crypto.h>
+#include <openssl/ctrdrbg.h>
 #include <openssl/dh.h>
 #include <openssl/digest.h>
 #include <openssl/ec.h>
@@ -1064,7 +1065,7 @@ TEST(ServiceIndicatorTest, RSAKeyGen) {
     EXPECT_TRUE(CALL_SERVICE_AND_CHECK_APPROVED(
         approved, RSA_generate_key_fips(rsa.get(), bits, nullptr)));
     EXPECT_EQ(approved, FIPSStatus::APPROVED);
-    EXPECT_EQ(bits, BN_num_bits(rsa->n));
+    EXPECT_EQ(bits, RSA_bits(rsa.get()));
   }
 
   // Test running the EVP_PKEY_keygen interfaces one by one directly, and check
